@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Test my model</title>
+<style>
+  :root { --bg:#f5f7f6; --fg:#16211d; --mut:#5d6b65; --card:#ffffff; --line:#cfd8d3; --ac:#0b7a5a; --acfg:#ffffff; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#101614; --fg:#e8efec; --mut:#9aaaa3; --card:#18211e; --line:#2b3833; --ac:#3ecf9f; --acfg:#08130f; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui, "Segoe UI", sans-serif; }
+  main { max-width:520px; margin:0 auto; padding:20px 16px 40px; }
+  h1 { font-size:1.4rem; margin:0 0 4px; }
+  p { color:var(--mut); margin:0 0 16px; }
+  label { display:block; font-weight:600; margin-bottom:6px; }
+  input { width:100%; padding:12px; font-size:1rem; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--fg); }
+  button { margin-top:12px; width:100%; padding:14px; font-size:1rem; font-weight:600; border:0; border-radius:8px; background:var(--ac); color:var(--acfg); }
+  button:disabled { opacity:.5; }
+  button:focus-visible, input:focus-visible { outline:3px solid var(--ac); outline-offset:2px; }
+  #msg { min-height:1.5em; margin-top:12px; color:var(--mut); }
+  #cam { margin-top:16px; border-radius:10px; overflow:hidden; background:#000; line-height:0; }
+  #cam canvas { width:100%; height:auto; }
+  .row { margin-top:12px; }
+  .row .top { display:flex; justify-content:space-between; font-weight:600; }
+  .bar { height:10px; background:var(--line); border-radius:5px; overflow:hidden; margin-top:4px; }
+  .bar i { display:block; height:100%; width:0; background:var(--ac); }
+  .best .top { font-size:1.15rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Test my model</h1>
+  <p>Paste your Teachable Machine model link, then start the camera.</p>
+
+  <label for="url">Model link</label>
+  <input id="url" type="url" inputmode="url" placeholder="https://teachablemachine.withgoogle.com/models/XXXXXXXX/" autocomplete="off">
+  <button id="go">Start camera</button>
+  <div id="msg" role="status"></div>
+
+  <div id="cam"></div>
+  <div id="out"></div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8.5/dist/teachablemachine-image.min.js"></script>
+<script>
+  var model, webcam, running = false;
+  var urlBox = document.getElementById("url");
+  var goBtn = document.getElementById("go");
+  var msg = document.getElementById("msg");
+  var out = document.getElementById("out");
+
+  // Remember the last link on this phone (optional convenience)
+  try { urlBox.value = localStorage.getItem("tmurl") || ""; } catch (e) {}
+
+  goBtn.addEventListener("click", start);
+
+  async function start() {
+    var base = urlBox.value.trim();
+    if (!base) { msg.textContent = "Paste the model link first."; return; }
+    if (base.slice(-1) !== "/") base += "/";
+    try { localStorage.setItem("tmurl", base); } catch (e) {}
+
+    goBtn.disabled = true;
+    msg.textContent = "Loading model...";
+    running = false;
+    document.getElementById("cam").innerHTML = "";
+    out.innerHTML = "";
+
+    try {
+      model = await tmImage.load(base + "model.json", base + "metadata.json");
+    } catch (e) {
+      msg.textContent = "Could not load the model. Check the link and that you clicked Upload my model.";
+      goBtn.disabled = false;
+      return;
+    }
+
+    try {
+      webcam = new tmImage.Webcam(400, 400, false);
+      await webcam.setup({ facingMode: "environment" });
+      await webcam.play();
+    } catch (e) {
+      msg.textContent = "Camera blocked. Allow camera access in the browser and use an https link.";
+      goBtn.disabled = false;
+      return;
+    }
+
+    document.getElementById("cam").appendChild(webcam.canvas);
+    var n = model.getTotalClasses();
+    for (var i = 0; i < n; i++) {
+      var d = document.createElement("div");
+      d.className = "row";
+      d.innerHTML = '<div class="top"><span></span><span></span></div><div class="bar"><i></i></div>';
+      out.appendChild(d);
+    }
+    msg.textContent = "Point the camera at an object.";
+    goBtn.textContent = "Reload model";
+    goBtn.disabled = false;
+    running = true;
+    window.requestAnimationFrame(loop);
+  }
+
+  async function loop() {
+    if (!running) return;
+    webcam.update();
+    var preds = await model.predict(webcam.canvas);
+    var best = 0;
+    for (var i = 1; i < preds.length; i++) if (preds[i].probability > preds[best].probability) best = i;
+    for (var j = 0; j < preds.length; j++) {
+      var row = out.children[j];
+      var pct = Math.round(preds[j].probability * 100);
+      row.children[0].children[0].textContent = preds[j].className;
+      row.children[0].children[1].textContent = pct + "%";
+      row.children[1].children[0].style.width = pct + "%";
+      row.className = "row" + (j === best ? " best" : "");
+    }
+    window.requestAnimationFrame(loop);
+  }
+</script>
+</body>
+</html>
